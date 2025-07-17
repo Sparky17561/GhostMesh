@@ -9,9 +9,20 @@ PORT = 5555
 # ─── Helpers ────────────────────────────────────────────────────────────
 def get_local_ip():
     """
-    Returns the machine's LAN IP by opening a dummy UDP socket to the internet.
-    Falls back to socket.gethostname() if that fails.
+    Returns the first private‐network IP on this host,
+    by checking all addresses for 10.*, 172.16–31.*, or 192.168.*.
     """
+    try:
+        # gethostbyname_ex returns (hostname, aliaslist, iplist)
+        _, _, addrs = socket.gethostbyname_ex(socket.gethostname())
+    except:
+        addrs = []
+    # Check for IPv4 private ranges
+    for ip in addrs:
+        if ip.startswith("10.") or ip.startswith("192.168.") or \
+           (ip.startswith("172.") and 16 <= int(ip.split('.')[1]) <= 31):
+            return ip
+    # Fallback to UDP trick if no private addr found
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
@@ -19,7 +30,30 @@ def get_local_ip():
         s.close()
         return ip
     except:
-        return socket.gethostbyname(socket.gethostname())
+        return "0.0.0.0"
+
+# ─── Messaging ──────────────────────────────────────────────────────────
+def send_msg(sock):
+    try:
+        while True:
+            msg = input("> ")
+            if msg.lower() in ['exit', 'quit']:
+                break
+            sock.sendall(msg.encode('utf-8'))
+    except:
+        print("[❌] Connection closed.")
+    finally:
+        sock.close()
+
+def recv_msg(sock):
+    try:
+        while True:
+            data = sock.recv(1024)
+            if not data:
+                break
+            print(f"\n📩 {data.decode('utf-8')}\n> ", end="")
+    except:
+        print("[❌] Disconnected from peer.")
 
 # ─── TCP Server/Client ──────────────────────────────────────────────────
 def tcp_server():
@@ -51,29 +85,6 @@ def tcp_client(server_ip):
     threading.Thread(target=recv_msg, args=(client,), daemon=True).start()
     send_msg(client)
     client.close()
-
-# ─── Messaging ──────────────────────────────────────────────────────────
-def send_msg(sock):
-    try:
-        while True:
-            msg = input("> ")
-            if msg.lower() in ['exit', 'quit']:
-                break
-            sock.sendall(msg.encode('utf-8'))
-    except:
-        print("[❌] Connection closed.")
-    finally:
-        sock.close()
-
-def recv_msg(sock):
-    try:
-        while True:
-            data = sock.recv(1024)
-            if not data:
-                break
-            print(f"\n📩 {data.decode('utf-8')}\n> ", end="")
-    except:
-        print("[❌] Disconnected from peer.")
 
 # ─── Auto‑Discovery ──────────────────────────────────────────────────────
 def scan_for_server(port=PORT, timeout=0.5):
